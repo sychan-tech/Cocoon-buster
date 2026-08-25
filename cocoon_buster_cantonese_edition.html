@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cocoon Buster (Cantonese Edition)</title>
+  
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang HK", "Microsoft JhengHei", sans-serif;
+    }
+
+    body {
+      background: #0f172a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    #game-container {
+      position: relative;
+      width: 1000px;
+      height: 700px;
+      max-width: 100vw;
+      max-height: 100vh;
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+      border: 4px solid #ffffff;
+      background-color: #e2f1e7;
+    }
+
+    video {
+      display: none;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      transform: scaleX(-1); /* Mirror canvas for natural webcam feel */
+    }
+
+    #ui-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 20px;
+    }
+
+    .hud {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      z-index: 10;
+    }
+
+    .badge {
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(8px);
+      padding: 10px 22px;
+      border-radius: 50px;
+      font-size: 22px;
+      font-weight: bold;
+      color: #1e293b;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+      border: 3px solid #38bdf8;
+    }
+
+    #slogan {
+      position: absolute;
+      top: 25px;
+      width: 100%;
+      text-align: center;
+      font-size: 34px;
+      font-weight: 900;
+      color: #ffffff;
+      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 20px rgba(255, 255, 255, 0.9);
+      pointer-events: none;
+      letter-spacing: 3px;
+      z-index: 5;
+    }
+
+    #message-box {
+      position: absolute;
+      bottom: 25px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      padding: 18px 36px;
+      border-radius: 28px;
+      text-align: center;
+      box-shadow: 0 12px 35px rgba(0, 0, 0, 0.25);
+      border: 4px solid #10b981;
+      pointer-events: auto;
+      z-index: 30;
+      max-width: 90%;
+    }
+
+    #message-box h1 {
+      color: #ef4444;
+      font-size: 28px;
+      margin-bottom: 6px;
+    }
+
+    #message-box p {
+      color: #334155;
+      font-size: 18px;
+      margin-bottom: 14px;
+      font-weight: 600;
+    }
+
+    button {
+      background: linear-gradient(135deg, #10b981, #06b6d4);
+      color: white;
+      border: none;
+      padding: 12px 32px;
+      font-size: 20px;
+      font-weight: bold;
+      border-radius: 50px;
+      cursor: pointer;
+      box-shadow: 0 5px 0px #047857;
+      transition: all 0.15s ease;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 7px 0px #047857;
+    }
+
+    button:active {
+      transform: translateY(2px);
+      box-shadow: 0 2px 0px #047857;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="game-container">
+    <video id="webcam" playsinline></video>
+    <canvas id="gameCanvas" width="1000" height="700"></canvas>
+
+    <!-- Background music element with fallback WebAudio synthesizer -->
+    <audio id="bg-music" src="https://upload.wikimedia.org/wikipedia/commons/0/05/Grieg_Lyric_Pieces_Op_43_No_1_Butterfly.ogg" loop preload="auto"></audio>
+
+    <!-- Asset Images -->
+    <img id="bg-image" src="Cocoon buster_counselling.png" alt="Garden Background" style="display:none;" onerror="this.src='1.png'">
+    <img id="cocoon-image" src="2.png" alt="Cocoon" style="display:none;">
+    <img id="butterfly-image" src="Cocoon buster_counselling-2.png" alt="Butterfly" style="display:none;" onerror="this.src='3.png'">
+
+    <div id="ui-overlay">
+      <div class="hud">
+        <div class="badge" id="layer-count">蠶繭餘下: 20 層</div>
+        <div class="badge" id="timer">時間: 0.0 秒</div>
+      </div>
+
+      <div id="slogan">擁抱蛻變。迎向幸福</div>
+
+      <div id="message-box">
+        <h1 id="msg-title">破繭而出！🦋</h1>
+        <p id="msg-desc">大幅度左右揮動雙手，用力撕開純白蠶繭啦！</p>
+        <button id="start-btn" onclick="startGame()">開始遊戲</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var videoElement = document.getElementById('webcam');
+    var canvasElement = document.getElementById('gameCanvas');
+    var canvasCtx = canvasElement.getContext('2d');
+    
+    var bgImage = document.getElementById('bg-image');
+    var cocoonImage = document.getElementById('cocoon-image');
+    var butterflyImage = document.getElementById('butterfly-image');
+
+    var layerEl = document.getElementById('layer-count');
+    var timerEl = document.getElementById('timer');
+    var messageBox = document.getElementById('message-box');
+    var msgTitle = document.getElementById('msg-title');
+    var msgDesc = document.getElementById('msg-desc');
+    var startBtn = document.getElementById('start-btn');
+
+    // Game State Configuration
+    var totalLayers = 20; // Slightly increased for extra challenge
+    var layersLeft = 20;
+    var gameActive = false;
+    var startTime = 0;
+    var elapsedTime = 0;
+    var timerInterval = null;
+
+    // Gesture Detection Settings (Higher difficulty threshold)
+    var prevWristX = null;
+    var waveDirection = 0;
+    var lastTearTime = 0;
+    var requiredMovementThreshold = 0.075; // Increased horizontal movement required (more vigorous waving)
+    var tearCooldownMs = 380; // Increased cooldown between layer peels
+
+    // Detached Shell Animation Physics
+    var detachedLayers = [];
+    var butterflyY = 0;
+    var butterflyOpacity = 0;
+    var frameCount = 0;
+    var butterflyFlown = false;
+
+    // Web Audio Synthesizer (Ensures music & peeling sound ALWAYS work reliably)
+    var audioCtx = null;
+    var isMusicPlaying = false;
+    var musicInterval = null;
+
+    var pose = new Pose({
+      locateFile: function(file) {
+        return 'https://cdn.jsdelivr.net/npm/@mediapipe/pose/' + file;
+      }
+    });
+
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    pose.onResults(onPoseResults);
+
+    var camera = new Camera(videoElement, {
+      onFrame: async function() {
+        await pose.send({ image: videoElement });
+      },
+      width: 1000,
+      height: 700
+    });
+
+    camera.start();
+
+    function initAudio() {
+      if (!audioCtx) {
+        var AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          audioCtx = new AudioContextClass();
+        }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    // Realistic paper/silk peeling sound generator
+    function playPeelingSound() {
+      initAudio();
+      if (!audioCtx) return;
+
+      try {
+        var now = audioCtx.currentTime;
+        var bufferSize = audioCtx.sampleRate * 0.22; // 220ms duration sound
+        var buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        var data = buffer.getChannelData(0);
+
+        // Generate filtered white noise for crisp tearing sound
+        for (var i = 0; i < bufferSize; i++) {
+          data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 1.5);
+        }
+
+        var noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+
+        // Bandpass filter for paper/silk friction texture
+        var filter = audioCtx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(1200, now);
+        filter.frequency.exponentialRampToValueAtTime(3200, now + 0.15);
+        filter.Q.value = 2.5;
+
+        var gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.7, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.21);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        noise.start(now);
+
+        // Add a gentle low-end snap/pop
+        var osc = audioCtx.createOscillator();
+        var oscGain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+        oscGain.gain.setValueAtTime(0.4, now);
+        oscGain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+
+        osc.connect(oscGain);
+        oscGain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.1);
+      } catch (e) {
+        console.log('Audio play error:', e);
+      }
+    }
+
+    // Reliable background music synthesizer fallback
+    function startBackgroundMusic() {
+      initAudio();
+      var bgMusic = document.getElementById('bg-music');
+
+      if (bgMusic) {
+        bgMusic.currentTime = 0;
+        bgMusic.volume = 0.5;
+        var playPromise = bgMusic.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(function() {
+            // HTML5 audio blocked or failed, launch synthesized harp/piano lullaby melody
+            startSynthesizedMusic();
+          });
+        }
+      } else {
+        startSynthesizedMusic();
+      }
+    }
+
+    function startSynthesizedMusic() {
+      if (isMusicPlaying) return;
+      isMusicPlaying = true;
+      var notes = [261.63, 329.63, 392.00, 523.25, 440.00, 349.23, 329.63, 392.00]; // Gentle arpeggio loop
+      var noteIdx = 0;
+
+      if (musicInterval) clearInterval(musicInterval);
+      musicInterval = setInterval(function() {
+        if (!gameActive || !audioCtx) return;
+        try {
+          var now = audioCtx.currentTime;
+          var osc = audioCtx.createOscillator();
+          var gain = audioCtx.createGain();
+
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(notes[noteIdx], now);
+          
+          gain.gain.setValueAtTime(0.12, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+
+          osc.start(now);
+          osc.stop(now + 0.5);
+
+          noteIdx = (noteIdx + 1) % notes.length;
+        } catch (e) {}
+      }, 240);
+    }
+
+    function startGame() {
+      initAudio();
+      layersLeft = totalLayers;
+      gameActive = true;
+      butterflyFlown = false;
+      butterflyOpacity = 0;
+      detachedLayers = [];
+      startTime = Date.now();
+      elapsedTime = 0;
+
+      messageBox.style.display = 'none';
+      layerEl.textContent = '蠶繭餘下: ' + layersLeft + ' 層';
+      timerEl.textContent = '時間: 0.0 秒';
+
+      startBackgroundMusic();
+
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = setInterval(function() {
+        if (gameActive) {
+          elapsedTime = ((Date.now() - startTime) / 1000).toFixed(1);
+          timerEl.textContent = '時間: ' + elapsedTime + ' 秒';
+        }
+      }, 100);
+    }
+
+    function triggerVictory() {
+      gameActive = false;
+      butterflyFlown = true;
+      clearInterval(timerInterval);
+
+      setTimeout(function() {
+        msgTitle.textContent = '恭喜你！美麗蛻變！🦋';
+        msgDesc.textContent = '你用了 ' + elapsedTime + ' 秒成功幫蝴蝶破繭而出！';
+        startBtn.textContent = '再玩一次';
+        messageBox.style.display = 'block';
+      }, 1000);
+    }
+
+    function detectWaveGesture(landmarks) {
+      if (!gameActive) return;
+
+      var rightWrist = landmarks[16];
+      var leftWrist = landmarks[15];
+
+      var activeWrist = null;
+      if (rightWrist && rightWrist.visibility > 0.5) {
+        activeWrist = rightWrist;
+      } else if (leftWrist && leftWrist.visibility > 0.5) {
+        activeWrist = leftWrist;
+      }
+
+      if (!activeWrist) return;
+
+      var now = Date.now();
+      var currentX = activeWrist.x;
+
+      if (prevWristX !== null) {
+        var dx = currentX - prevWristX;
+        
+        // Horizontal wave threshold (increased distance required for higher difficulty)
+        if (Math.abs(dx) > requiredMovementThreshold) {
+          var currentDir = dx > 0 ? 1 : -1;
+
+          if (waveDirection !== 0 && currentDir !== waveDirection) {
+            if (now - lastTearTime > tearCooldownMs) {
+              tearLayer();
+              lastTearTime = now;
+            }
+          }
+          waveDirection = currentDir;
+        }
+      }
+      prevWristX = currentX;
+    }
+
+    function tearLayer() {
+      if (layersLeft > 0 && gameActive) {
+        layersLeft--;
+        layerEl.textContent = '蠶繭餘下: ' + layersLeft + ' 層';
+        
+        // Play peeling sound effect
+        playPeelingSound();
+
+        // Spawn flying shell piece animation
+        spawnDetachedShell();
+
+        if (layersLeft === 0) {
+          triggerVictory();
+        }
+      }
+    }
+
+    function spawnDetachedShell() {
+      var centerX = canvasElement.width / 2;
+      var centerY = canvasElement.height / 2 - 20;
+
+      detachedLayers.push({
+        x: centerX,
+        y: centerY,
+        vx: (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 8 + 6),
+        vy: -Math.random() * 7 - 4,
+        rotation: 0,
+        vRot: (Math.random() - 0.5) * 0.25,
+        opacity: 1.0,
+        width: 440,
+        height: 560
+      });
+    }
+
+    function onPoseResults(results) {
+      frameCount++;
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      // 1. Draw Background
+      if (bgImage.complete && bgImage.naturalWidth > 0) {
+        canvasCtx.drawImage(bgImage, 0, 0, canvasElement.width, canvasElement.height); 
+      } else {
+        drawWatercolorGardenReplica1();
+      }
+
+      // 2. Detect hand wave gesture
+      if (results.poseLandmarks) {
+        detectWaveGesture(results.poseLandmarks);
+      }
+
+      // 3. Draw Game Objects (Cocoon or Butterfly)
+      var centerX = canvasElement.width / 2;
+      var centerY = canvasElement.height / 2 - 20;
+
+      if (layersLeft === 0 || butterflyFlown) {
+        drawEmergingButterfly(centerX, centerY);
+      }
+
+      drawGameObjects();
+
+      // 4. Draw Webcam Picture-in-Picture overlay
+      if (results.image) {
+        drawWebcamPip(results.image);
+      }
+
+      canvasCtx.restore();
+    }
+
+    function drawWatercolorGardenReplica1() {
+      var grad = canvasCtx.createLinearGradient(0, 0, 0, canvasElement.height);
+      grad.addColorStop(0, '#eaf4e8');
+      grad.addColorStop(0.3, '#dcecdb');
+      grad.addColorStop(0.7, '#d3e8e5');
+      grad.addColorStop(1, '#e2efe6');
+      canvasCtx.fillStyle = grad;
+      canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+
+      // Splatters
+      canvasCtx.fillStyle = 'rgba(180, 150, 130, 0.25)';
+      var splatters = [
+        [380, 140, 6], [420, 120, 8], [450, 150, 5], [480, 130, 7], 
+        [520, 160, 6], [550, 140, 8], [360, 180, 5], [600, 180, 7]
+      ];
+      for (var s = 0; s < splatters.length; s++) {
+        canvasCtx.beginPath();
+        canvasCtx.arc(splatters[s][0], splatters[s][1], splatters[s][2], 0, Math.PI * 2);
+        canvasCtx.fill();
+      }
+
+      drawDenseBottomGarden();
+      drawLargeSidePinkFlowers();
+    }
+
+    function drawDenseBottomGarden() {
+      var bottomY = canvasElement.height;
+      canvasCtx.fillStyle = 'rgba(134, 200, 120, 0.4)';
+      canvasCtx.beginPath();
+      canvasCtx.rect(0, bottomY - 140, canvasElement.width, 140);
+      canvasCtx.fill();
+
+      var flowerColors = ['#f472b6', '#f59e0b', '#ffffff', '#c084fc', '#fb7185', '#60a5fa', '#facc15'];
+      for (var x = 12; x < canvasElement.width; x += 16) {
+        var stemHeight = 45 + Math.sin(x * 0.08) * 35 + (x % 7) * 8;
+        var fy = bottomY - stemHeight;
+        
+        canvasCtx.strokeStyle = '#65a30d';
+        canvasCtx.lineWidth = 2.5;
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(x, bottomY);
+        canvasCtx.lineTo(x + Math.sin(x) * 6, fy);
+        canvasCtx.stroke();
+
+        var color = flowerColors[(x * 13) % flowerColors.length];
+        canvasCtx.fillStyle = color;
+        
+        if (x % 3 === 0) {
+          for (var p = 0; p < 6; p++) {
+            var angle = (p * Math.PI) / 3;
+            canvasCtx.beginPath();
+            canvasCtx.arc(x + Math.cos(angle) * 7, fy + Math.sin(angle) * 7, 5, 0, Math.PI * 2);
+            canvasCtx.fill();
+          }
+          canvasCtx.fillStyle = '#f59e0b';
+          canvasCtx.beginPath();
+          canvasCtx.arc(x, fy, 4, 0, Math.PI * 2);
+          canvasCtx.fill();
+        } else {
+          canvasCtx.beginPath();
+          canvasCtx.arc(x, fy, 7 + (x % 4), 0, Math.PI * 2);
+          canvasCtx.fill();
+          canvasCtx.fillStyle = '#fef08a';
+          canvasCtx.beginPath();
+          canvasCtx.arc(x, fy, 3, 0, Math.PI * 2);
+          canvasCtx.fill();
+        }
+      }
+    }
+
+    function drawLargeSidePinkFlowers() {
+      drawSoftPinkBloom(75, 140, 70);
+      drawSoftPinkBloom(100, 360, 85);
+      drawSoftPinkBloom(canvasElement.width - 75, 120, 70);
+      drawSoftPinkBloom(canvasElement.width - 95, 340, 85);
+    }
+
+    function drawSoftPinkBloom(cx, cy, radius) {
+      canvasCtx.save();
+      canvasCtx.fillStyle = '#fca5a5';
+      canvasCtx.beginPath();
+      canvasCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+      canvasCtx.fill();
+
+      var grad = canvasCtx.createRadialGradient(cx, cy, 10, cx, cy, radius);
+      grad.addColorStop(0, '#fecdd3');
+      grad.addColorStop(0.6, '#fda4af');
+      grad.addColorStop(1, '#f43f5e');
+      canvasCtx.fillStyle = grad;
+
+      for (var i = 0; i < 5; i++) {
+        var angle = (i * Math.PI * 2) / 5;
+        var px = cx + Math.cos(angle) * (radius * 0.4);
+        var py = cy + Math.sin(angle) * (radius * 0.4);
+        canvasCtx.beginPath();
+        canvasCtx.arc(px, py, radius * 0.55, 0, Math.PI * 2);
+        canvasCtx.fill();
+      }
+
+      canvasCtx.fillStyle = '#fef08a';
+      canvasCtx.beginPath();
+      canvasCtx.arc(cx, cy, radius * 0.22, 0, Math.PI * 2);
+      canvasCtx.fill();
+      canvasCtx.restore();
+    }
+
+    function drawWebcamPip(imageSource) {
+      var pipW = 180;
+      var pipH = 125;
+      var pipX = 15;
+      var pipY = 15;
+
+      canvasCtx.save();
+      canvasCtx.strokeStyle = '#ffffff';
+      canvasCtx.lineWidth = 3;
+      canvasCtx.shadowColor = 'rgba(0,0,0,0.3)';
+      canvasCtx.shadowBlur = 10;
+      canvasCtx.strokeRect(pipX, pipY, pipW, pipH);
+      canvasCtx.drawImage(imageSource, pipX, pipY, pipW, pipH);
+      canvasCtx.restore();
+    }
+
+    function drawGameObjects() {
+      var centerX = canvasElement.width / 2;
+      var centerY = canvasElement.height / 2 - 20; 
+
+      if (layersLeft > 0) {
+        drawBigWhiteCocoon(centerX, centerY, layersLeft);
+      }
+
+      updateAndDrawDetachedLayers();
+    }
+
+    function drawBigWhiteCocoon(x, y, layers) {
+      var baseWidth = 440; 
+      var baseHeight = 560;
+
+      for (var i = 0; i < layers; i++) {
+        var scale = (i / totalLayers) * 0.35 + 0.65; 
+        var layerW = baseWidth * scale;
+        var layerH = baseHeight * scale;
+
+        canvasCtx.save();
+        canvasCtx.translate(x, y);
+        
+        var randomRotation = (Math.sin(i * 1234) * 0.04); 
+        canvasCtx.rotate(randomRotation);
+
+        if (cocoonImage.complete && cocoonImage.naturalWidth > 0 && false) { // Pure white cocoon rendering
+          canvasCtx.drawImage(cocoonImage, -layerW/2, -layerH/2, layerW, layerH);
+        } else {
+          drawWhiteCocoonReplica(layerW, layerH);
+        }
+        
+        canvasCtx.restore();
+      }
+    }
+
+    // Pure white silky cocoon renderer with realistic shading & silk threads
+    function drawWhiteCocoonReplica(w, h) {
+      canvasCtx.save();
+      canvasCtx.beginPath();
+      canvasCtx.ellipse(0, 0, w / 2, h / 2, 0, 0, 2 * Math.PI);
+      
+      var grad = canvasCtx.createLinearGradient(-w/2, 0, w/2, 0);
+      grad.addColorStop(0, '#e2e8f0');
+      grad.addColorStop(0.25, '#f8fafc');
+      grad.addColorStop(0.5, '#ffffff');
+      grad.addColorStop(0.75, '#f1f5f9');
+      grad.addColorStop(1, '#cbd5e1');
+      canvasCtx.fillStyle = grad;
+      canvasCtx.fill();
+      
+      canvasCtx.strokeStyle = '#94a3b8';
+      canvasCtx.lineWidth = 4;
+      canvasCtx.stroke();
+
+      // Silk texture curves
+      for (var r = -4; r <= 4; r++) {
+        var ry = r * (h / 11);
+        var rx = Math.sqrt(Math.max(0, 1 - (ry * ry) / ((h / 2) * (h / 2)))) * (w / 2);
+        canvasCtx.beginPath();
+        canvasCtx.ellipse(0, ry, rx, 14, 0, 0, Math.PI);
+        canvasCtx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+        canvasCtx.lineWidth = 5;
+        canvasCtx.stroke();
+      }
+      canvasCtx.restore();
+    }
+
+    function updateAndDrawDetachedLayers() {
+      for (var i = detachedLayers.length - 1; i >= 0; i--) {
+        var shell = detachedLayers[i];
+        shell.x += shell.vx;
+        shell.y += shell.vy;
+        shell.vy += 0.5; // Gravity
+        shell.rotation += shell.vRot;
+        shell.opacity -= 0.025;
+
+        if (shell.opacity <= 0) {
+          detachedLayers.splice(i, 1);
+          continue;
+        }
+
+        canvasCtx.save();
+        canvasCtx.translate(shell.x, shell.y);
+        canvasCtx.rotate(shell.rotation);
+        
+        canvasCtx.globalAlpha = shell.opacity;
+        drawWhiteCocoonReplica(shell.width * 0.9, shell.height * 0.9);
+        
+        canvasCtx.restore();
+      }
+    }
+
+    function drawEmergingButterfly(startX, startY) {
+      if (butterflyOpacity < 1.0) butterflyOpacity += 0.05;
+      
+      butterflyY = Math.sin(frameCount * 0.06) * 14; 
+
+      var currentX = startX;
+      var currentY = startY + butterflyY;
+
+      canvasCtx.save();
+      canvasCtx.translate(currentX, currentY);
+      canvasCtx.globalAlpha = butterflyOpacity;
+
+      if (butterflyImage.complete && butterflyImage.naturalWidth > 0 && butterflyImage.src.indexOf('Cocoon buster_counselling-2.png') !== -1) {
+        var width = 680;
+        var height = 520;
+        canvasCtx.drawImage(butterflyImage, -width/2, -height/2, width, height);
+      } else {
+        // High-precision vector replica matching Cocoon buster_counselling-2.png butterfly
+        drawTargetPurpleButterflyReplica();
+      }
+      canvasCtx.restore();
+    }
+
+    function drawTargetPurpleButterflyReplica() {
+      canvasCtx.save();
+
+      // Sparkles on sides
+      drawSparkle(-280, -20, 24, '#fbbf24');
+      drawSparkle(280, 0, 24, '#fbbf24');
+
+      // Outer Wings (Purple) - Upper Left
+      canvasCtx.save();
+      canvasCtx.fillStyle = '#8b5cf6';
+      canvasCtx.strokeStyle = '#1e1b4b';
+      canvasCtx.lineWidth = 14;
+      
+      // Left Upper Wing
+      canvasCtx.beginPath();
+      canvasCtx.ellipse(-140, -110, 120, 160, -0.35, 0, Math.PI * 2);
+      canvasCtx.fill();
+      canvasCtx.stroke();
+
+      // Right Upper Wing
+      canvasCtx.beginPath();
+      canvasCtx.ellipse(140, -110, 120, 160, 0.35, 0, Math.PI * 2);
+      canvasCtx.fill();
+      canvasCtx.stroke();
+
+      // Left Lower Wing
+      canvasCtx.beginPath();
+      canvasCtx.ellipse(-110, 100, 100, 120, 0.35, 0, Math.PI * 2);
+      canvasCtx.fill();
+      canvasCtx.stroke();
+
+      // Right Lower Wing
+      canvasCtx.beginPath();
+      canvasCtx.ellipse(110, 100, 100, 120, -0.35, 0, Math.PI * 2);
+      canvasCtx.fill();
+      canvasCtx.stroke();
+
+      // Inner Wings Pink Overlay (Left)
+      canvasCtx.fillStyle = '#f472b6';
+      canvasCtx.beginPath();
+      canvasCtx.ellipse(-125, -95, 80, 115, -0.35, 0, Math.PI * 2);
+      canvasCtx.fill();
+
+      // Inner Wings Pink Overlay (Right)
+      canvasCtx.beginPath();
+      canvasCtx.ellipse(125, -95, 80, 115, 0.35, 0, Math.PI * 2);
+      canvasCtx.fill();
+
+      // Inner Wings Pink Overlay (Bottom Left)
+      canvasCtx.beginPath();
+      canvasCtx.ellipse(-95, 90, 65, 85, 0.35, 0, Math.PI * 2);
+      canvasCtx.fill();
+
+      // Inner Wings Pink Overlay (Bottom Right)
+      canvasCtx.beginPath();
+      canvasCtx.ellipse(95, 90, 65, 85, -0.35, 0, Math.PI * 2);
+      canvasCtx.fill();
+
+      // Soft Pink Wing Spots
+      canvasCtx.fillStyle = '#fbcfe8';
+      canvasCtx.beginPath();
+      canvasCtx.arc(-180, -180, 22, 0, Math.PI * 2);
+      canvasCtx.arc(-140, -210, 16, 0, Math.PI * 2);
+      canvasCtx.arc(180, -180, 22, 0, Math.PI * 2);
+      canvasCtx.arc(140, -210, 16, 0, Math.PI * 2);
+      canvasCtx.fill();
+
+      // Lower Body (Caterpillar segments - Yellow)
+      canvasCtx.fillStyle = '#eab308';
+      canvasCtx.beginPath();
+      canvasCtx.ellipse(0, 110, 48, 120, 0, 0, Math.PI * 2);
+      canvasCtx.fill();
+      canvasCtx.lineWidth = 12;
+      canvasCtx.stroke();
+
+      // Head (Yellow)
+      canvasCtx.fillStyle = '#facc15';
+      canvasCtx.beginPath();
+      canvasCtx.arc(0, -60, 95, 0, Math.PI * 2);
+      canvasCtx.fill();
+      canvasCtx.lineWidth = 12;
+      canvasCtx.stroke();
+
+      // Antennae
+      canvasCtx.beginPath();
+      canvasCtx.moveTo(-30, -145);
+      canvasCtx.quadraticCurveTo(-65, -230, -85, -250);
+      canvasCtx.moveTo(30, -145);
+      canvasCtx.quadraticCurveTo(65, -230, 85, -250);
+      canvasCtx.lineWidth = 10;
+      canvasCtx.strokeStyle = '#1e1b4b';
+      canvasCtx.stroke();
+
+      // Antenna Round Tips (Yellow)
+      canvasCtx.fillStyle = '#facc15';
+      canvasCtx.beginPath();
+      canvasCtx.arc(-88, -255, 22, 0, Math.PI * 2);
+      canvasCtx.arc(88, -255, 22, 0, Math.PI * 2);
+      canvasCtx.fill();
+      canvasCtx.stroke();
+
+      // Cute Eyes
+      canvasCtx.fillStyle = '#0f172a';
+      canvasCtx.beginPath();
+      canvasCtx.arc(-42, -55, 14, 0, Math.PI * 2);
+      canvasCtx.arc(42, -55, 14, 0, Math.PI * 2);
+      canvasCtx.fill();
+
+      // Cute Smile
+      canvasCtx.beginPath();
+      canvasCtx.arc(0, -32, 22, 0.15 * Math.PI, 0.85 * Math.PI);
+      canvasCtx.lineWidth = 7;
+      canvasCtx.strokeStyle = '#0f172a';
+      canvasCtx.stroke();
+
+      // Cheeks (Pink)
+      canvasCtx.fillStyle = '#ff7171';
+      canvasCtx.beginPath();
+      canvasCtx.arc(-62, -28, 16, 0, Math.PI * 2);
+      canvasCtx.arc(62, -28, 16, 0, Math.PI * 2);
+      canvasCtx.fill();
+
+      canvasCtx.restore();
+    }
+
+    function drawSparkle(x, y, size, color) {
+      canvasCtx.save();
+      canvasCtx.fillStyle = color;
+      canvasCtx.translate(x, y);
+      canvasCtx.beginPath();
+      for (var i = 0; i < 4; i++) {
+        canvasCtx.rotate(Math.PI / 2);
+        canvasCtx.lineTo(0, size);
+        canvasCtx.lineTo(size * 0.3, size * 0.3);
+      }
+      canvasCtx.fill();
+      canvasCtx.restore();
+    }
+  </script>
+</body>
+</html>
